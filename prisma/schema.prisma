@@ -1,0 +1,87 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum PunchType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  FLAGGED
+}
+
+model Employee {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  authUserId String?  @unique @map("auth_user_id") @db.Uuid
+  fullName   String   @map("full_name")
+  email      String   @unique
+  phone      String?
+  staffCode  String   @unique @map("staff_code")
+  department String?
+  role       Role     @default(STAFF)
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  attendanceRecords AttendanceRecord[]
+
+  @@index([isActive])
+  @@map("employees")
+}
+
+model Location {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  qrSecret     String  @unique @map("qr_secret")
+  latitude     Float?
+  longitude    Float?
+  radiusMeters Int     @default(150) @map("radius_meters")
+  isActive     Boolean @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  attendanceRecords AttendanceRecord[]
+
+  @@map("locations")
+}
+
+model AttendanceRecord {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  employeeId String           @map("employee_id") @db.Uuid
+  locationId String?          @map("location_id") @db.Uuid
+  type       PunchType
+  scannedAt  DateTime         @default(now()) @map("scanned_at") @db.Timestamptz(6)
+  workDate   DateTime         @map("work_date") @db.Date
+  photoPath  String           @map("photo_path")
+  latitude   Float?
+  longitude  Float?
+  accuracyM  Float?           @map("accuracy_m")
+  distanceM  Float?           @map("distance_m")
+  status     AttendanceStatus @default(PRESENT)
+  deviceInfo Json?            @map("device_info")
+  notes      String?
+
+  employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+
+  @@unique([employeeId, workDate, type], name: "one_punch_per_type_per_day")
+  @@index([workDate])
+  @@index([employeeId, workDate])
+  @@map("attendance_records")
+}
