@@ -1,8 +1,21 @@
 import { exportCsv } from '@/lib/export'
+import { c, r, sp, t } from '@/lib/theme'
 import { useState } from 'react'
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, View } from 'react-native'
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native'
 
-function iso(d: Date) { return d.toISOString().slice(0, 10) }
+function iso(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
+    d.getDate()
+  ).padStart(2, '0')}`
+}
 
 export default function Export() {
   const today = new Date()
@@ -11,14 +24,33 @@ export default function Export() {
   const [from, setFrom] = useState(iso(monthStart))
   const [to, setTo] = useState(iso(today))
   const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  function preset(kind: 'month' | 'lastMonth' | 'week') {
+    const now = new Date()
+    if (kind === 'month') {
+      setFrom(iso(new Date(now.getFullYear(), now.getMonth(), 1)))
+      setTo(iso(now))
+    } else if (kind === 'lastMonth') {
+      setFrom(iso(new Date(now.getFullYear(), now.getMonth() - 1, 1)))
+      setTo(iso(new Date(now.getFullYear(), now.getMonth(), 0)))
+    } else {
+      const start = new Date(now)
+      start.setDate(now.getDate() - 6)
+      setFrom(iso(start))
+      setTo(iso(now))
+    }
+    setErr(null)
+  }
 
   async function run() {
+    setErr(null)
     setBusy(true)
     try {
       const n = await exportCsv(from, to)
-      Alert.alert('Exported', `${n} records.`)
+      Alert.alert('Exported', `${n} records included.`)
     } catch (e: any) {
-      Alert.alert('Export failed', e.message)
+      setErr(e.message)
     } finally {
       setBusy(false)
     }
@@ -26,25 +58,122 @@ export default function Export() {
 
   return (
     <View style={s.wrap}>
-      <Text style={s.label}>From</Text>
-      <TextInput style={s.input} value={from} onChangeText={setFrom} placeholder="YYYY-MM-DD" placeholderTextColor="#64748b" />
-      <Text style={s.label}>To</Text>
-      <TextInput style={s.input} value={to} onChangeText={setTo} placeholder="YYYY-MM-DD" placeholderTextColor="#64748b" />
+      <Text style={s.lead}>
+        Exports every attendance record in the range as a spreadsheet file.
+      </Text>
 
-      <Pressable style={[s.btn, busy && { opacity: 0.6 }]} onPress={run} disabled={busy}>
-        {busy ? <ActivityIndicator color="#fff" /> : <Text style={s.btnText}>Export CSV</Text>}
+      <View style={s.presets}>
+        <Preset label="This month" onPress={() => preset('month')} />
+        <Preset label="Last month" onPress={() => preset('lastMonth')} />
+        <Preset label="Last 7 days" onPress={() => preset('week')} />
+      </View>
+
+      <View style={s.card}>
+        <View style={[s.field, s.divider]}>
+          <Text style={t.label}>From</Text>
+          <TextInput
+            style={s.input}
+            value={from}
+            onChangeText={setFrom}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={c.inkFaint}
+            autoCorrect={false}
+            maxLength={10}
+          />
+        </View>
+        <View style={s.field}>
+          <Text style={t.label}>To</Text>
+          <TextInput
+            style={s.input}
+            value={to}
+            onChangeText={setTo}
+            placeholder="YYYY-MM-DD"
+            placeholderTextColor={c.inkFaint}
+            autoCorrect={false}
+            maxLength={10}
+          />
+        </View>
+      </View>
+
+      {err && (
+        <View style={s.errBox}>
+          <Text style={s.errText}>{err}</Text>
+        </View>
+      )}
+
+      <Pressable
+        style={({ pressed }) => [s.btn, (busy || pressed) && { opacity: 0.8 }]}
+        onPress={run}
+        disabled={busy}
+      >
+        {busy ? (
+          <ActivityIndicator color={c.accentInk} />
+        ) : (
+          <Text style={s.btnText}>Export CSV</Text>
+        )}
       </Pressable>
 
-      <Text style={s.note}>Opens the share sheet so you can send it to email or WhatsApp.</Text>
+      <Text style={s.note}>
+        Opens the share sheet so you can send it to email or WhatsApp, or save it
+        to your phone.
+      </Text>
     </View>
   )
 }
 
+function Preset({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [s.preset, pressed && { opacity: 0.8 }]}
+      onPress={onPress}
+    >
+      <Text style={s.presetText}>{label}</Text>
+    </Pressable>
+  )
+}
+
 const s = StyleSheet.create({
-  wrap: { flex: 1, backgroundColor: '#0f172a', padding: 20, gap: 8 },
-  label: { color: '#94a3b8', fontSize: 13, marginTop: 8 },
-  input: { backgroundColor: '#1e293b', color: '#fff', borderRadius: 10, padding: 14, fontSize: 16 },
-  btn: { backgroundColor: '#2563eb', borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 20 },
-  btnText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  note: { color: '#64748b', fontSize: 12, marginTop: 12 },
+  wrap: { flex: 1, backgroundColor: c.bg, padding: sp.lg },
+  lead: { ...t.meta, lineHeight: 19, marginBottom: sp.md },
+
+  presets: { flexDirection: 'row', gap: sp.sm, marginBottom: sp.md },
+  preset: {
+    flex: 1,
+    backgroundColor: c.surface,
+    borderWidth: 1,
+    borderColor: c.line,
+    borderRadius: r.sm,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  presetText: { color: c.accent, fontSize: 12, fontWeight: '600' },
+
+  card: {
+    backgroundColor: c.surface,
+    borderRadius: r.lg,
+    borderWidth: 1,
+    borderColor: c.line,
+    overflow: 'hidden',
+  },
+  field: { paddingHorizontal: sp.md, paddingTop: sp.md, paddingBottom: sp.sm + 2 },
+  divider: { borderBottomWidth: 1, borderBottomColor: c.line },
+  input: { color: c.ink, fontSize: 17, letterSpacing: 0.5, paddingTop: 6, paddingBottom: 2 },
+
+  errBox: {
+    backgroundColor: c.dangerBg,
+    borderRadius: r.sm,
+    padding: sp.sm + 4,
+    marginTop: sp.md,
+  },
+  errText: { color: c.danger, fontSize: 14, lineHeight: 19 },
+
+  btn: {
+    backgroundColor: c.accent,
+    borderRadius: r.md,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: sp.lg,
+  },
+  btnText: { color: c.accentInk, fontSize: 16, fontWeight: '700' },
+  note: { color: c.inkFaint, fontSize: 12, marginTop: sp.md, lineHeight: 18 },
 })

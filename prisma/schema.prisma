@@ -41,7 +41,7 @@ model Employee {
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   attendanceRecords AttendanceRecord[]
-
+  recordedForOthers AttendanceRecord[] @relation("RecordedBy")
   @@index([isActive])
   @@map("employees")
 }
@@ -79,7 +79,13 @@ model AttendanceRecord {
 
   employee Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  recordedById     String?  @map("recorded_by_id") @db.Uuid
+  subjectPhotoPath String?  @map("subject_photo_path")
+  clientTime       DateTime? @map("client_time") @db.Timestamptz(6)
+  isOffline        Boolean  @default(false) @map("is_offline")
+  isProxy          Boolean  @default(false) @map("is_proxy")
 
+  recordedBy Employee? @relation("RecordedBy", fields: [recordedById], references: [id], onDelete: SetNull)
   @@unique([employeeId, workDate, type], name: "one_punch_per_type_per_day")
   @@index([workDate])
   @@index([employeeId, workDate])
