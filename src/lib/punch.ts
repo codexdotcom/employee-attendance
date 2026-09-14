@@ -7,6 +7,7 @@ import { supabase } from './supabase'
 import { PunchType, QueuedPunch } from './types'
 
 const BUCKET = 'attendance-photos'
+const isWeb = Platform.OS === 'web'
 
 export async function compress(uri: string) {
   const context = ImageManipulator.manipulate(uri).resize({ width: 1024 })
@@ -15,17 +16,54 @@ export async function compress(uri: string) {
   return out.uri
 }
 
+/**
+ * Shrink a browser blob with a canvas. expo-image-manipulator is native-only,
+ * and phone cameras hand back 3-5MB files that would fill the storage tier fast.
+ */
+async function compressWeb(blobUrl: string): Promise<Blob> {
+  const res = await fetch(blobUrl)
+  const blob = await res.blob()
+
+  const bitmap = await createImageBitmap(blob)
+  const scale = Math.min(1, 1024 / bitmap.width)
+  const width = Math.round(bitmap.width * scale)
+  const height = Math.round(bitmap.height * scale)
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return blob
+  ctx.drawImage(bitmap, 0, 0, width, height)
+  bitmap.close?.()
+
+  return new Promise<Blob>((resolve) => {
+    canvas.toBlob(
+      (out) => resolve(out ?? blob),
+      'image/jpeg',
+      0.5
+    )
+  })
+}
+
 async function upload(localUri: string, employeeId: string, tag: string) {
-  const compressed = await compress(localUri)
-  const file = new File(compressed)
-  const bytes = await file.bytes()
   const path = `${employeeId}/${tag}-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 8)}.jpg`
 
+  let body: Uint8Array | Blob
+
+  if (isWeb) {
+    body = await compressWeb(localUri)
+  } else {
+    const compressed = await compress(localUri)
+    const file = new File(compressed)
+    body = await file.bytes()
+  }
+
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, bytes, { contentType: 'image/jpeg', upsert: false })
+    .upload(path, body, { contentType: 'image/jpeg', upsert: false })
 
   if (error) throw new Error(`UPLOAD_FAILED: ${error.message}`)
   return path
@@ -80,10 +118,13 @@ export type PunchInput = {
 export type PunchResult = { queued: boolean }
 
 /**
- * Attempts to send immediately. On a network failure the punch is stored
- * locally with the device clock and flushed by SyncProvider once online.
- * Any server-side rejection (bad QR, out of range, duplicate) is surfaced
- * straight away rather than queued, since retrying will not change it.
+ * Sends immediately. On a network failure the punch is stored locally with
+ * the device clock and flushed by SyncProvider once online. Server-side
+ * rejections (bad QR, out of range, duplicate) surface straight away, since
+ * retrying will not change the outcome.
+ *
+ * Web has no durable file store for a queued photo, so offline queueing is
+ * disabled there and the user is told to reconnect.
  */
 export async function submitPunch(args: PunchInput): Promise<PunchResult> {
   let fix = null
@@ -131,6 +172,12 @@ export async function submitPunch(args: PunchInput): Promise<PunchResult> {
       throw new Error(friendlyError(String(e?.message ?? '')))
     }
 
+    if (isWeb) {
+      throw new Error(
+        'No internet connection. Reconnect and try again. Offline recording is only available in the installed app.'
+      )
+    }
+
     const photoUri = await persistPhoto(args.photoUri, 'env')
     const subjectPhotoUri = args.subjectPhotoUri
       ? await persistPhoto(args.subjectPhotoUri, 'person')
@@ -157,7 +204,7 @@ export async function submitPunch(args: PunchInput): Promise<PunchResult> {
   }
 }
 
-/** Used by SyncProvider. Throws only on network failure, so the item stays queued. */
+/** Used by SyncProvider. Native only. Throws on network failure so the item stays queued. */
 export async function flushOne(item: QueuedPunch) {
   const photoPath = await upload(item.photoUri, item.employeeId, 'env')
   let subjectPath: string | null = null

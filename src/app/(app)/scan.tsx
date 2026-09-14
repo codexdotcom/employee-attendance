@@ -1,3 +1,5 @@
+import { WebPhotoCapture } from '@/components/WebPhotoCapture'
+import { WebQrScanner } from '@/components/WebQrScanner'
 import { usePunchPermissions } from '@/hooks/usePunchPermissions'
 import { submitPunch } from '@/lib/punch'
 import { supabase } from '@/lib/supabase'
@@ -12,11 +14,14 @@ import {
   ActivityIndicator,
   Alert, FlatList,
   Image,
+  Platform,
   Pressable, StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native'
+
+const isWeb = Platform.OS === 'web'
 
 type Step =
   | 'who' | 'choose' | 'photo' | 'review'
@@ -53,17 +58,32 @@ export default function Scan() {
       .then(({ data }) => setAllowProxy(data?.allow_proxy ?? true))
   }, [])
 
+  // Blob URLs from the web file input leak unless revoked.
+  useEffect(() => {
+    return () => {
+      if (isWeb) {
+        if (photo?.startsWith('blob:')) URL.revokeObjectURL(photo)
+        if (personPhoto?.startsWith('blob:')) URL.revokeObjectURL(personPhoto)
+      }
+    }
+  }, [photo, personPhoto])
+
   async function beginFor(isProxy: boolean) {
     setProxy(isProxy)
     setError(null)
-    const g = await perms.requestAll()
-    if (!g.camera) {
-      Alert.alert('Camera needed', 'Enable camera access in Settings to log attendance.')
-      return
-    }
-    if (!g.location) {
-      Alert.alert('Location needed', 'Location confirms you are on school premises.')
-      return
+
+    // On web the browser prompts for camera and location when they are first
+    // used, so there is nothing to request up front.
+    if (!isWeb) {
+      const g = await perms.requestAll()
+      if (!g.camera) {
+        Alert.alert('Camera needed', 'Enable camera access in Settings to log attendance.')
+        return
+      }
+      if (!g.location) {
+        Alert.alert('Location needed', 'Location confirms you are on school premises.')
+        return
+      }
     }
     setStep('choose')
   }
@@ -133,7 +153,7 @@ export default function Scan() {
     }
   }, [photo, personPhoto, subject, employee, type, proxy, refresh])
 
-  if (!perms.ready || !employee) {
+  if ((!isWeb && !perms.ready) || !employee) {
     return <View style={s.center}><ActivityIndicator color={c.accent} /></View>
   }
 
@@ -192,6 +212,17 @@ export default function Scan() {
 
   // ---------- environment photo ----------
   if (step === 'photo') {
+    if (isWeb) {
+      return (
+        <View style={s.pad}>
+          <Text style={t.label}>Step 1 of {proxy ? '3' : '2'}</Text>
+          <Text style={s.h1}>Photograph where you are standing</Text>
+          <WebPhotoCapture
+            onCapture={(uri) => { setPhoto(uri); setStep('review') }}
+          />
+        </View>
+      )
+    }
     return (
       <View style={s.camWrap}>
         <CameraView
@@ -204,33 +235,44 @@ export default function Scan() {
           <Text style={s.hint}>
             {camReady ? 'Step 1: photograph where you are standing' : 'Preparing camera'}
           </Text>
-          <Shutter
-            disabled={!camReady || capturing}
-            onPress={() => capture('env')}
-          />
+          <Shutter disabled={!camReady || capturing} onPress={() => capture('env')} />
         </View>
       </View>
     )
   }
 
   if (step === 'review' && photo) {
+    const next = () => {
+      if (proxy) { setCamReady(false); setStep('person') }
+      else setStep('qr')
+    }
+    const retake = () => { setPhoto(null); setCamReady(false); setStep('photo') }
+
+    if (isWeb) {
+      return (
+        <View style={s.wrap}>
+          <Image source={{ uri: photo }} style={s.webPreview} resizeMode="contain" />
+          <View style={s.webBar}>
+            <Pressable style={s.webRetake} onPress={retake}>
+              <Text style={s.webRetakeText}>Retake</Text>
+            </Pressable>
+            <Pressable style={s.webNext} onPress={next}>
+              <Text style={s.confirmText}>
+                {proxy ? 'Next: photograph them' : 'Use this photo'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      )
+    }
     return (
       <View style={s.camWrap}>
         <Image source={{ uri: photo }} style={{ flex: 1 }} resizeMode="cover" />
         <View style={s.reviewBar}>
-          <Pressable
-            style={s.retake}
-            onPress={() => { setPhoto(null); setCamReady(false); setStep('photo') }}
-          >
+          <Pressable style={s.retake} onPress={retake}>
             <Text style={s.retakeText}>Retake</Text>
           </Pressable>
-          <Pressable
-            style={s.confirm}
-            onPress={() => {
-              if (proxy) { setCamReady(false); setStep('person') }
-              else setStep('qr')
-            }}
-          >
+          <Pressable style={s.confirm} onPress={next}>
             <Text style={s.confirmText}>
               {proxy ? 'Next: photograph them' : 'Use this photo'}
             </Text>
@@ -242,6 +284,17 @@ export default function Scan() {
 
   // ---------- person photo ----------
   if (step === 'person') {
+    if (isWeb) {
+      return (
+        <View style={s.pad}>
+          <Text style={t.label}>Step 2 of 3</Text>
+          <Text style={s.h1}>Photograph the person</Text>
+          <WebPhotoCapture
+            onCapture={(uri) => { setPersonPhoto(uri); setStep('personReview') }}
+          />
+        </View>
+      )
+    }
     return (
       <View style={s.camWrap}>
         <CameraView
@@ -254,24 +307,35 @@ export default function Scan() {
           <Text style={s.hint}>
             {camReady ? 'Step 2: photograph the person' : 'Preparing camera'}
           </Text>
-          <Shutter
-            disabled={!camReady || capturing}
-            onPress={() => capture('person')}
-          />
+          <Shutter disabled={!camReady || capturing} onPress={() => capture('person')} />
         </View>
       </View>
     )
   }
 
   if (step === 'personReview' && personPhoto) {
+    const retake = () => { setPersonPhoto(null); setCamReady(false); setStep('person') }
+
+    if (isWeb) {
+      return (
+        <View style={s.wrap}>
+          <Image source={{ uri: personPhoto }} style={s.webPreview} resizeMode="contain" />
+          <View style={s.webBar}>
+            <Pressable style={s.webRetake} onPress={retake}>
+              <Text style={s.webRetakeText}>Retake</Text>
+            </Pressable>
+            <Pressable style={s.webNext} onPress={openPicker}>
+              <Text style={s.confirmText}>Next: select name</Text>
+            </Pressable>
+          </View>
+        </View>
+      )
+    }
     return (
       <View style={s.camWrap}>
         <Image source={{ uri: personPhoto }} style={{ flex: 1 }} resizeMode="cover" />
         <View style={s.reviewBar}>
-          <Pressable
-            style={s.retake}
-            onPress={() => { setPersonPhoto(null); setCamReady(false); setStep('person') }}
-          >
+          <Pressable style={s.retake} onPress={retake}>
             <Text style={s.retakeText}>Retake</Text>
           </Pressable>
           <Pressable style={s.confirm} onPress={openPicker}>
@@ -327,6 +391,28 @@ export default function Scan() {
 
   // ---------- qr ----------
   if (step === 'qr') {
+    if (isWeb) {
+      return (
+        <View style={s.wrap}>
+          <View style={s.webScanner}>
+            <WebQrScanner active onScan={(text) => onScan({ data: text })} />
+          </View>
+          <View style={s.webScanFoot}>
+            {error ? (
+              <View style={s.webErrBox}>
+                <Text style={s.webErrText}>{error}</Text>
+              </View>
+            ) : (
+              <Text style={s.webHint}>
+                {subject
+                  ? `Final step: scan the code for ${subject.full_name}`
+                  : 'Hold the attendance code in view of the camera'}
+              </Text>
+            )}
+          </View>
+        </View>
+      )
+    }
     return (
       <View style={s.camWrap}>
         <CameraView
@@ -413,10 +499,7 @@ const s = StyleSheet.create({
   camWrap: { flex: 1, backgroundColor: '#000' },
 
   h1: { ...t.title, marginBottom: sp.sm },
-  tag: {
-    ...t.label, color: c.warn,
-    marginBottom: sp.xs,
-  },
+  tag: { ...t.label, color: c.warn, marginBottom: sp.xs },
 
   choice: { borderRadius: r.lg, padding: sp.lg },
   choicePrimary: { backgroundColor: c.accent },
@@ -438,6 +521,18 @@ const s = StyleSheet.create({
   retakeText: { color: '#fff', fontWeight: '600', fontSize: 15 },
   confirm: { flex: 2, backgroundColor: c.accent, borderRadius: r.md, paddingVertical: 15, alignItems: 'center' },
   confirmText: { color: c.accentInk, fontWeight: '700', fontSize: 15 },
+
+  webPreview: { flex: 1, margin: sp.md, borderRadius: r.md },
+  webBar: { flexDirection: 'row', gap: sp.sm + 2, padding: sp.md },
+  webRetake: { flex: 1, borderWidth: 1, borderColor: c.lineStrong, borderRadius: r.md, paddingVertical: 15, alignItems: 'center' },
+  webRetakeText: { color: c.inkSoft, fontWeight: '600', fontSize: 15 },
+  webNext: { flex: 2, backgroundColor: c.accent, borderRadius: r.md, paddingVertical: 15, alignItems: 'center' },
+
+  webScanner: { flex: 1, margin: sp.md, borderRadius: r.md, overflow: 'hidden', backgroundColor: '#000' },
+  webScanFoot: { padding: sp.md, paddingTop: 0 },
+  webHint: { color: c.inkSoft, fontSize: 14, textAlign: 'center', lineHeight: 20 },
+  webErrBox: { backgroundColor: c.dangerBg, borderRadius: r.sm, padding: sp.sm + 4 },
+  webErrText: { color: c.danger, fontSize: 14, textAlign: 'center', lineHeight: 20 },
 
   searchWrap: { padding: sp.md, paddingBottom: sp.sm },
   search: {
