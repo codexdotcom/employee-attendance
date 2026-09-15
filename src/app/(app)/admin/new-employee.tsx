@@ -58,10 +58,7 @@ export default function NewEmployee() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}
       >
-        <ScrollView
-          contentContainerStyle={s.scroll}
-          keyboardShouldPersistTaps="handled"
-        >
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
           <Text style={s.title}>Add staff member</Text>
           <Text style={s.lead}>
             A login is created automatically and the password is shown once.
@@ -175,57 +172,34 @@ const s = StyleSheet.create({
   lead: { ...t.meta, marginTop: sp.xs, marginBottom: sp.lg },
 
   card: {
-    backgroundColor: c.surface,
-    borderRadius: r.lg,
-    borderWidth: 1,
-    borderColor: c.line,
-    overflow: 'hidden',
+    backgroundColor: c.surface, borderRadius: r.lg,
+    borderWidth: 1, borderColor: c.line, overflow: 'hidden',
   },
   field: { paddingHorizontal: sp.md, paddingTop: sp.md, paddingBottom: sp.sm + 2 },
   fieldDivider: { borderBottomWidth: 1, borderBottomColor: c.line },
-  input: {
-    color: c.ink,
-    fontSize: 16,
-    paddingTop: 6,
-    paddingBottom: 2,
-  },
+  input: { color: c.ink, fontSize: 16, paddingTop: 6, paddingBottom: 2 },
 
   check: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: sp.sm + 2,
-    backgroundColor: c.surface,
-    borderRadius: r.lg,
-    borderWidth: 1,
-    borderColor: c.line,
-    padding: sp.md,
-    marginTop: sp.md,
+    flexDirection: 'row', alignItems: 'flex-start', gap: sp.sm + 2,
+    backgroundColor: c.surface, borderRadius: r.lg,
+    borderWidth: 1, borderColor: c.line, padding: sp.md, marginTop: sp.md,
   },
   box: {
     width: 22, height: 22, borderRadius: r.sm,
     borderWidth: 2, borderColor: c.lineStrong,
-    alignItems: 'center', justifyContent: 'center',
-    marginTop: 1,
+    alignItems: 'center', justifyContent: 'center', marginTop: 1,
   },
   boxOn: { backgroundColor: c.accent, borderColor: c.accent },
   boxTick: { color: c.accentInk, fontSize: 13, fontWeight: '700', lineHeight: 16 },
   checkTitle: { color: c.ink, fontSize: 15, fontWeight: '600' },
   checkSub: { color: c.inkSoft, fontSize: 12, lineHeight: 17, marginTop: 2 },
 
-  errBox: {
-    backgroundColor: c.dangerBg,
-    borderRadius: r.sm,
-    padding: sp.sm + 4,
-    marginTop: sp.md,
-  },
+  errBox: { backgroundColor: c.dangerBg, borderRadius: r.sm, padding: sp.sm + 4, marginTop: sp.md },
   errText: { color: c.danger, fontSize: 14, lineHeight: 19 },
 
   btn: {
-    backgroundColor: c.accent,
-    borderRadius: r.md,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: sp.lg,
+    backgroundColor: c.accent, borderRadius: r.md,
+    paddingVertical: 16, alignItems: 'center', marginTop: sp.lg,
   },
   btnText: { color: c.accentInk, fontSize: 16, fontWeight: '700' },
 })

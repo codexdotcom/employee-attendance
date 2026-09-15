@@ -1,14 +1,9 @@
+import { alert } from '@/lib/alert'
 import { exportCsv } from '@/lib/export'
 import { c, r, sp, t } from '@/lib/theme'
 import { useState } from 'react'
 import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+  ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View,
 } from 'react-native'
 
 function iso(d: Date) {
@@ -25,6 +20,7 @@ export default function Export() {
   const [to, setTo] = useState(iso(today))
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
 
   function preset(kind: 'month' | 'lastMonth' | 'week') {
     const now = new Date()
@@ -41,14 +37,17 @@ export default function Export() {
       setTo(iso(now))
     }
     setErr(null)
+    setDone(null)
   }
 
   async function run() {
     setErr(null)
+    setDone(null)
     setBusy(true)
     try {
       const n = await exportCsv(from, to)
-      Alert.alert('Exported', `${n} records included.`)
+      setDone(`${n} ${n === 1 ? 'record' : 'records'} exported.`)
+      alert('Exported', `${n} records included.`)
     } catch (e: any) {
       setErr(e.message)
     } finally {
@@ -101,21 +100,25 @@ export default function Export() {
         </View>
       )}
 
+      {done && (
+        <View style={s.okBox}>
+          <Text style={s.okText}>{done}</Text>
+        </View>
+      )}
+
       <Pressable
         style={({ pressed }) => [s.btn, (busy || pressed) && { opacity: 0.8 }]}
         onPress={run}
         disabled={busy}
       >
-        {busy ? (
-          <ActivityIndicator color={c.accentInk} />
-        ) : (
-          <Text style={s.btnText}>Export CSV</Text>
-        )}
+        {busy
+          ? <ActivityIndicator color={c.accentInk} />
+          : <Text style={s.btnText}>Export CSV</Text>}
       </Pressable>
 
       <Text style={s.note}>
         Opens the share sheet so you can send it to email or WhatsApp, or save it
-        to your phone.
+        to your phone. In a browser it downloads directly.
       </Text>
     </View>
   )
@@ -138,41 +141,28 @@ const s = StyleSheet.create({
 
   presets: { flexDirection: 'row', gap: sp.sm, marginBottom: sp.md },
   preset: {
-    flex: 1,
-    backgroundColor: c.surface,
-    borderWidth: 1,
-    borderColor: c.line,
-    borderRadius: r.sm,
-    paddingVertical: 10,
-    alignItems: 'center',
+    flex: 1, backgroundColor: c.surface,
+    borderWidth: 1, borderColor: c.line, borderRadius: r.sm,
+    paddingVertical: 10, alignItems: 'center',
   },
   presetText: { color: c.accent, fontSize: 12, fontWeight: '600' },
 
   card: {
-    backgroundColor: c.surface,
-    borderRadius: r.lg,
-    borderWidth: 1,
-    borderColor: c.line,
-    overflow: 'hidden',
+    backgroundColor: c.surface, borderRadius: r.lg,
+    borderWidth: 1, borderColor: c.line, overflow: 'hidden',
   },
   field: { paddingHorizontal: sp.md, paddingTop: sp.md, paddingBottom: sp.sm + 2 },
   divider: { borderBottomWidth: 1, borderBottomColor: c.line },
   input: { color: c.ink, fontSize: 17, letterSpacing: 0.5, paddingTop: 6, paddingBottom: 2 },
 
-  errBox: {
-    backgroundColor: c.dangerBg,
-    borderRadius: r.sm,
-    padding: sp.sm + 4,
-    marginTop: sp.md,
-  },
+  errBox: { backgroundColor: c.dangerBg, borderRadius: r.sm, padding: sp.sm + 4, marginTop: sp.md },
   errText: { color: c.danger, fontSize: 14, lineHeight: 19 },
+  okBox: { backgroundColor: c.okBg, borderRadius: r.sm, padding: sp.sm + 4, marginTop: sp.md },
+  okText: { color: '#4ade80', fontSize: 14 },
 
   btn: {
-    backgroundColor: c.accent,
-    borderRadius: r.md,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: sp.lg,
+    backgroundColor: c.accent, borderRadius: r.md,
+    paddingVertical: 16, alignItems: 'center', marginTop: sp.lg,
   },
   btnText: { color: c.accentInk, fontSize: 16, fontWeight: '700' },
   note: { color: c.inkFaint, fontSize: 12, marginTop: sp.md, lineHeight: 18 },

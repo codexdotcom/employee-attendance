@@ -1,6 +1,7 @@
 import { WebPhotoCapture } from '@/components/WebPhotoCapture'
 import { WebQrScanner } from '@/components/WebQrScanner'
 import { usePunchPermissions } from '@/hooks/usePunchPermissions'
+import { alert } from '@/lib/alert'
 import { submitPunch } from '@/lib/punch'
 import { supabase } from '@/lib/supabase'
 import { c, r, sp, t } from '@/lib/theme'
@@ -12,7 +13,7 @@ import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert, FlatList,
+  FlatList,
   Image,
   Platform,
   Pressable, StyleSheet,
@@ -36,6 +37,11 @@ export default function Scan() {
   const cameraRef = useRef<CameraView>(null)
   const scanLock = useRef(false)
 
+  // Blob URLs are revoked on unmount only. Revoking them when the photo
+  // state changes would kill the first photo the moment the second is taken,
+  // which is what broke the proxy flow with "Load failed".
+  const blobUrls = useRef<string[]>([])
+
   const [step, setStep] = useState<Step>('who')
   const [proxy, setProxy] = useState(false)
   const [allowProxy, setAllowProxy] = useState(true)
@@ -44,6 +50,7 @@ export default function Scan() {
   const [personPhoto, setPersonPhoto] = useState<string | null>(null)
   const [subject, setSubject] = useState<StaffDirectoryEntry | null>(null)
   const [staff, setStaff] = useState<StaffDirectoryEntry[]>([])
+  const [staffLoading, setStaffLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [camReady, setCamReady] = useState(false)
@@ -58,30 +65,35 @@ export default function Scan() {
       .then(({ data }) => setAllowProxy(data?.allow_proxy ?? true))
   }, [])
 
-  // Blob URLs from the web file input leak unless revoked.
   useEffect(() => {
     return () => {
       if (isWeb) {
-        if (photo?.startsWith('blob:')) URL.revokeObjectURL(photo)
-        if (personPhoto?.startsWith('blob:')) URL.revokeObjectURL(personPhoto)
+        blobUrls.current.forEach((u) => {
+          try { URL.revokeObjectURL(u) } catch { /* already gone */ }
+        })
+        blobUrls.current = []
       }
     }
-  }, [photo, personPhoto])
+  }, [])
+
+  function trackBlob(uri: string) {
+    if (isWeb && uri.startsWith('blob:')) blobUrls.current.push(uri)
+  }
 
   async function beginFor(isProxy: boolean) {
     setProxy(isProxy)
     setError(null)
 
-    // On web the browser prompts for camera and location when they are first
-    // used, so there is nothing to request up front.
+    // On web the browser prompts for camera and location on first use,
+    // so there is nothing to request up front.
     if (!isWeb) {
       const g = await perms.requestAll()
       if (!g.camera) {
-        Alert.alert('Camera needed', 'Enable camera access in Settings to log attendance.')
+        alert('Camera needed', 'Enable camera access in Settings to log attendance.')
         return
       }
       if (!g.location) {
-        Alert.alert('Location needed', 'Location confirms you are on school premises.')
+        alert('Location needed', 'Location confirms you are on school premises.')
         return
       }
     }
@@ -109,7 +121,7 @@ export default function Scan() {
         }
       }
     } catch {
-      Alert.alert('Camera', 'Could not take the photo. Try again.')
+      alert('Camera', 'Could not take the photo. Try again.')
     } finally {
       setCapturing(false)
     }
@@ -117,10 +129,16 @@ export default function Scan() {
 
   async function openPicker() {
     setStep('pick')
-    const { data } = await supabase
+    setStaffLoading(true)
+    const { data, error: err } = await supabase
       .from('staff_directory')
       .select('*')
       .order('full_name')
+    setStaffLoading(false)
+    if (err) {
+      alert('Could not load staff', err.message)
+      return
+    }
     setStaff(
       ((data as StaffDirectoryEntry[]) ?? []).filter((x) => x.id !== employee?.id)
     )
@@ -215,10 +233,10 @@ export default function Scan() {
     if (isWeb) {
       return (
         <View style={s.pad}>
-          <Text style={t.label}>Step 1 of {proxy ? '3' : '2'}</Text>
+          <Text style={t.label}>Step 1 of {proxy ? 3 : 2}</Text>
           <Text style={s.h1}>Photograph where you are standing</Text>
           <WebPhotoCapture
-            onCapture={(uri) => { setPhoto(uri); setStep('review') }}
+            onCapture={(uri) => { trackBlob(uri); setPhoto(uri); setStep('review') }}
           />
         </View>
       )
@@ -231,7 +249,7 @@ export default function Scan() {
           facing="back"
           onCameraReady={() => setCamReady(true)}
         />
-        <View style={s.overlay}>
+        <View style={s.overlay} pointerEvents="box-none">
           <Text style={s.hint}>
             {camReady ? 'Step 1: photograph where you are standing' : 'Preparing camera'}
           </Text>
@@ -290,7 +308,11 @@ export default function Scan() {
           <Text style={t.label}>Step 2 of 3</Text>
           <Text style={s.h1}>Photograph the person</Text>
           <WebPhotoCapture
-            onCapture={(uri) => { setPersonPhoto(uri); setStep('personReview') }}
+            onCapture={(uri) => {
+              trackBlob(uri)
+              setPersonPhoto(uri)
+              setStep('personReview')
+            }}
           />
         </View>
       )
@@ -303,7 +325,7 @@ export default function Scan() {
           facing="back"
           onCameraReady={() => setCamReady(true)}
         />
-        <View style={s.overlay}>
+        <View style={s.overlay} pointerEvents="box-none">
           <Text style={s.hint}>
             {camReady ? 'Step 2: photograph the person' : 'Preparing camera'}
           </Text>
@@ -364,27 +386,31 @@ export default function Scan() {
             autoCorrect={false}
           />
         </View>
-        <FlatList
-          data={filtered}
-          keyExtractor={(i) => i.id}
-          contentContainerStyle={{ padding: sp.md, gap: sp.sm }}
-          ListEmptyComponent={<Text style={s.empty}>No matching staff.</Text>}
-          renderItem={({ item }) => (
-            <Pressable
-              style={({ pressed }) => [s.pickRow, pressed && { opacity: 0.8 }]}
-              onPress={() => { setSubject(item); setStep('qr') }}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={s.pickName}>{item.full_name}</Text>
-                <Text style={s.pickMeta}>
-                  {item.staff_code}
-                  {item.department ? `   ${item.department}` : ''}
-                </Text>
-              </View>
-              <Text style={s.chevron}>›</Text>
-            </Pressable>
-          )}
-        />
+        {staffLoading ? (
+          <ActivityIndicator color={c.accent} style={{ marginTop: sp.lg }} />
+        ) : (
+          <FlatList
+            data={filtered}
+            keyExtractor={(i) => i.id}
+            contentContainerStyle={{ padding: sp.md, gap: sp.sm }}
+            ListEmptyComponent={<Text style={s.empty}>No matching staff.</Text>}
+            renderItem={({ item }) => (
+              <Pressable
+                style={({ pressed }) => [s.pickRow, pressed && { opacity: 0.8 }]}
+                onPress={() => { setSubject(item); setStep('qr') }}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={s.pickName}>{item.full_name}</Text>
+                  <Text style={s.pickMeta}>
+                    {item.staff_code}
+                    {item.department ? `   ${item.department}` : ''}
+                  </Text>
+                </View>
+                <Text style={s.chevron}>›</Text>
+              </Pressable>
+            )}
+          />
+        )}
       </View>
     )
   }
@@ -422,7 +448,7 @@ export default function Scan() {
           onBarcodeScanned={onScan}
         />
         <View style={s.frame} pointerEvents="none" />
-        <View style={s.overlay}>
+        <View style={s.overlay} pointerEvents="none">
           {error ? (
             <Text style={s.errBanner}>{error}</Text>
           ) : (

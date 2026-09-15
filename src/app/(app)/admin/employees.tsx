@@ -1,5 +1,6 @@
 import { Credentials, CredentialsModal } from '@/components/CredentialsModal'
 import { adminApi } from '@/lib/adminApi'
+import { alert } from '@/lib/alert'
 import { supabase } from '@/lib/supabase'
 import { c, r, sp, t } from '@/lib/theme'
 import { Employee } from '@/lib/types'
@@ -8,7 +9,6 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
 import {
   ActivityIndicator,
-  Alert,
   FlatList, Pressable,
   RefreshControl,
   StyleSheet,
@@ -30,7 +30,7 @@ export default function Employees() {
       .select('*')
       .order('is_active', { ascending: false })
       .order('full_name')
-    if (error) Alert.alert('Error', error.message)
+    if (error) alert('Error', error.message)
     setRows((data as Employee[]) ?? [])
     setLoading(false)
   }, [])
@@ -38,7 +38,7 @@ export default function Employees() {
   useFocusEffect(useCallback(() => { load() }, [load]))
 
   function onReset(emp: Employee) {
-    Alert.alert(
+    alert(
       'Reset password?',
       `A new password will be generated for ${emp.full_name}. Their current one stops working immediately.`,
       [
@@ -56,7 +56,7 @@ export default function Employees() {
                 isReset: true,
               })
             } catch (e: any) {
-              Alert.alert('Failed', e.message)
+              alert('Failed', e.message)
             } finally {
               setBusyId(null)
             }
@@ -68,7 +68,7 @@ export default function Employees() {
 
   function onToggle(emp: Employee) {
     const turningOff = emp.is_active
-    Alert.alert(
+    alert(
       turningOff ? `Disable ${emp.full_name}?` : `Enable ${emp.full_name}?`,
       turningOff
         ? 'They will be signed out and unable to log attendance. All their records are kept.'
@@ -84,7 +84,7 @@ export default function Employees() {
               await adminApi.setActive(emp.id, !emp.is_active)
               await load()
             } catch (e: any) {
-              Alert.alert('Failed', e.message)
+              alert('Failed', e.message)
             } finally {
               setBusyId(null)
             }
@@ -95,7 +95,7 @@ export default function Employees() {
   }
 
   function onDelete(emp: Employee) {
-    Alert.alert(
+    alert(
       `Delete ${emp.full_name}?`,
       'This permanently removes their login, every attendance record, and every photo. It cannot be undone.\n\nTo simply stop them signing in, use Disable instead.',
       [
@@ -109,7 +109,7 @@ export default function Employees() {
               await adminApi.deleteEmployee(emp.id)
               await load()
             } catch (e: any) {
-              Alert.alert('Could not delete', e.message)
+              alert('Could not delete', e.message)
             } finally {
               setBusyId(null)
             }
@@ -120,11 +120,7 @@ export default function Employees() {
   }
 
   if (loading) {
-    return (
-      <View style={s.center}>
-        <ActivityIndicator color={c.accent} />
-      </View>
-    )
+    return <View style={s.center}><ActivityIndicator color={c.accent} /></View>
   }
 
   const activeCount = rows.filter((x) => x.is_active).length
@@ -176,19 +172,13 @@ export default function Employees() {
                   {!item.auth_user_id && (
                     <Text style={s.warn}>No login linked to this record</Text>
                   )}
-                  {!item.is_active && (
-                    <Text style={s.disabled}>Disabled</Text>
-                  )}
+                  {!item.is_active && <Text style={s.disabled}>Disabled</Text>}
                 </View>
                 {working && <ActivityIndicator color={c.inkSoft} />}
               </View>
 
               <View style={s.actions}>
-                <Pressable
-                  style={s.action}
-                  disabled={working}
-                  onPress={() => onReset(item)}
-                >
+                <Pressable style={s.action} disabled={working} onPress={() => onReset(item)}>
                   <Text style={s.actionText}>Reset password</Text>
                 </Pressable>
 
@@ -207,14 +197,11 @@ export default function Employees() {
                 </Pressable>
 
                 <Pressable
-                  style={s.action}
+                  style={[s.action, s.actionLast]}
                   disabled={working || isMe}
                   onPress={() => onDelete(item)}
                 >
-                  <Text style={[
-                    s.actionText,
-                    { color: isMe ? c.inkFaint : c.danger },
-                  ]}>
+                  <Text style={[s.actionText, { color: isMe ? c.inkFaint : c.danger }]}>
                     Delete
                   </Text>
                 </Pressable>
@@ -234,38 +221,21 @@ const s = StyleSheet.create({
   center: { flex: 1, backgroundColor: c.bg, justifyContent: 'center' },
 
   head: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: sp.md,
-    paddingTop: sp.md,
-    paddingBottom: sp.sm,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: sp.md, paddingTop: sp.md, paddingBottom: sp.sm,
   },
   count: { ...t.meta, marginTop: sp.xs, fontSize: 14 },
-  add: {
-    backgroundColor: c.accent,
-    paddingHorizontal: sp.md,
-    paddingVertical: 10,
-    borderRadius: r.md,
-  },
+  add: { backgroundColor: c.accent, paddingHorizontal: sp.md, paddingVertical: 10, borderRadius: r.md },
   addText: { color: c.accentInk, fontWeight: '700', fontSize: 14 },
 
   list: { padding: sp.md, gap: sp.sm + 2, paddingBottom: sp.xl },
 
   card: {
-    backgroundColor: c.surface,
-    borderRadius: r.lg,
-    borderWidth: 1,
-    borderColor: c.line,
-    overflow: 'hidden',
+    backgroundColor: c.surface, borderRadius: r.lg,
+    borderWidth: 1, borderColor: c.line, overflow: 'hidden',
   },
   cardOff: { opacity: 0.55 },
-  cardTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    padding: sp.md,
-    gap: sp.sm,
-  },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', padding: sp.md, gap: sp.sm },
   name: { color: c.ink, fontSize: 16, fontWeight: '600' },
   you: { color: c.inkFaint, fontSize: 11, fontWeight: '700' },
   meta: { color: c.inkSoft, fontSize: 13, marginTop: 3 },
@@ -273,18 +243,12 @@ const s = StyleSheet.create({
   warn: { color: c.warn, fontSize: 12, marginTop: 6 },
   disabled: { color: c.inkFaint, fontSize: 12, fontWeight: '600', marginTop: 6 },
 
-  actions: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: c.line,
-  },
+  actions: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: c.line },
   action: {
-    flex: 1,
-    paddingVertical: 13,
-    alignItems: 'center',
-    borderRightWidth: 1,
-    borderRightColor: c.line,
+    flex: 1, paddingVertical: 13, alignItems: 'center',
+    borderRightWidth: 1, borderRightColor: c.line,
   },
+  actionLast: { borderRightWidth: 0 },
   actionText: { color: c.accent, fontSize: 13, fontWeight: '600' },
 
   empty: { color: c.inkFaint, textAlign: 'center', marginTop: sp.xl, fontSize: 14 },

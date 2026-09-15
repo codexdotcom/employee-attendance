@@ -1,8 +1,8 @@
 import { File, Paths } from 'expo-file-system'
 import * as Sharing from 'expo-sharing'
+import { Platform } from 'react-native'
 import { supabase } from './supabase'
 import { AttendanceView } from './types'
-
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 function esc(v: unknown) {
@@ -63,8 +63,22 @@ export async function exportCsv(fromDate: string, toDate: string) {
 
   // Excel needs a BOM to read accented names correctly from a UTF-8 CSV.
   const csv = '\uFEFF' + [header.join(','), ...lines].join('\r\n')
+  const filename = `attendance-${fromDate}-to-${toDate}.csv`
 
-  const file = new File(Paths.cache, `attendance-${fromDate}-to-${toDate}.csv`)
+  if (Platform.OS === 'web') {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    return rows.length
+  }
+
+  const file = new File(Paths.cache, filename)
   if (file.exists) file.delete()
   file.write(csv)
 

@@ -1,17 +1,17 @@
+import { alert } from '@/lib/alert'
 import { supabase } from '@/lib/supabase'
 import { c, r, sp, t } from '@/lib/theme'
 import { useAuth } from '@/providers/AuthProvider'
 import { useRouter } from 'expo-router'
 import { useState } from 'react'
 import {
-    ActivityIndicator,
-    Alert,
-    KeyboardAvoidingView, Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text, TextInput,
-    View,
+  ActivityIndicator,
+  KeyboardAvoidingView, Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text, TextInput,
+  View,
 } from 'react-native'
 
 export default function ChangePassword() {
@@ -26,6 +26,10 @@ export default function ChangePassword() {
   async function submit() {
     setErr(null)
 
+    if (!employee) {
+      setErr('Your account could not be loaded. Sign out and back in.')
+      return
+    }
     if (!current || !next || !confirm) {
       setErr('Fill in all three fields.')
       return
@@ -45,9 +49,10 @@ export default function ChangePassword() {
 
     setBusy(true)
     try {
-      // Re-authenticate so a borrowed unlocked phone cannot change the password.
+      // Re-authenticate first, so a borrowed unlocked phone cannot be used
+      // to change someone's password.
       const { error: signInErr } = await supabase.auth.signInWithPassword({
-        email: employee!.email,
+        email: employee.email,
         password: current,
       })
       if (signInErr) {
@@ -61,7 +66,11 @@ export default function ChangePassword() {
         return
       }
 
-      Alert.alert(
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+
+      alert(
         'Password changed',
         'Use your new password the next time you sign in.',
         [{ text: 'Done', onPress: () => router.back() }]
@@ -85,22 +94,9 @@ export default function ChangePassword() {
           </Text>
 
           <View style={s.card}>
-            <Field
-              label="Current password"
-              value={current}
-              onChangeText={setCurrent}
-            />
-            <Field
-              label="New password"
-              value={next}
-              onChangeText={setNext}
-            />
-            <Field
-              label="Confirm new password"
-              value={confirm}
-              onChangeText={setConfirm}
-              last
-            />
+            <Field label="Current password" value={current} onChangeText={setCurrent} />
+            <Field label="New password" value={next} onChangeText={setNext} />
+            <Field label="Confirm new password" value={confirm} onChangeText={setConfirm} last />
           </View>
 
           {err && (
@@ -135,6 +131,7 @@ function Field({
         secureTextEntry
         autoCapitalize="none"
         autoCorrect={false}
+        autoComplete="off"
         {...rest}
       />
     </View>
@@ -154,6 +151,9 @@ const s = StyleSheet.create({
   input: { color: c.ink, fontSize: 16, paddingTop: 6, paddingBottom: 2 },
   errBox: { backgroundColor: c.dangerBg, borderRadius: r.sm, padding: sp.sm + 4, marginTop: sp.md },
   errText: { color: c.danger, fontSize: 14, lineHeight: 19 },
-  btn: { backgroundColor: c.accent, borderRadius: r.md, paddingVertical: 16, alignItems: 'center', marginTop: sp.lg },
+  btn: {
+    backgroundColor: c.accent, borderRadius: r.md,
+    paddingVertical: 16, alignItems: 'center', marginTop: sp.lg,
+  },
   btnText: { color: c.accentInk, fontSize: 16, fontWeight: '700' },
 })

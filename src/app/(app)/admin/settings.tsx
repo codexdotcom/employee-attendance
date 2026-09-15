@@ -1,16 +1,16 @@
+import { alert } from '@/lib/alert'
 import { supabase } from '@/lib/supabase'
 import { c, r, sp, t } from '@/lib/theme'
 import { AppSettings } from '@/lib/types'
 import { useEffect, useState } from 'react'
 import {
-    ActivityIndicator,
-    Alert,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text, TextInput,
-    View,
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text, TextInput,
+  View,
 } from 'react-native'
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
@@ -58,11 +58,11 @@ export default function Settings() {
       return
     }
     const ok = await save({ late_cutoff: late })
-    if (ok) Alert.alert('Saved', `Check-ins after ${late} are marked late.`)
+    if (ok) alert('Saved', `Check-ins after ${late} are marked late.`)
   }
 
   async function purgeNow() {
-    Alert.alert(
+    alert(
       'Delete old photos now?',
       `Photos older than ${settings?.photo_retention_weeks} weeks will be removed. Attendance records are kept.`,
       [
@@ -74,8 +74,8 @@ export default function Settings() {
             setBusy(true)
             const { data, error } = await supabase.rpc('purge_old_photos')
             setBusy(false)
-            if (error) Alert.alert('Failed', error.message)
-            else Alert.alert('Done', `${data ?? 0} records had photos removed.`)
+            if (error) alert('Failed', error.message)
+            else alert('Done', `${data ?? 0} records had photos removed.`)
           },
         },
       ]
@@ -100,7 +100,6 @@ export default function Settings() {
             onChangeText={setLate}
             placeholder="07:45"
             placeholderTextColor={c.inkFaint}
-            keyboardType="numbers-and-punctuation"
             maxLength={5}
           />
           <Pressable style={s.saveBtn} onPress={saveLate} disabled={busy}>
@@ -190,10 +189,7 @@ const s = StyleSheet.create({
     paddingHorizontal: sp.md, paddingVertical: 12,
     color: c.ink, fontSize: 18, letterSpacing: 1,
   },
-  saveBtn: {
-    backgroundColor: c.accent, borderRadius: r.sm,
-    paddingHorizontal: sp.lg, paddingVertical: 13,
-  },
+  saveBtn: { backgroundColor: c.accent, borderRadius: r.sm, paddingHorizontal: sp.lg, paddingVertical: 13 },
   saveText: { color: c.accentInk, fontWeight: '700', fontSize: 14 },
 
   toggleRow: { flexDirection: 'row', alignItems: 'center', gap: sp.md, paddingVertical: sp.xs },

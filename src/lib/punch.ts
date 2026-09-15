@@ -21,29 +21,35 @@ export async function compress(uri: string) {
  * and phone cameras hand back 3-5MB files that would fill the storage tier fast.
  */
 async function compressWeb(blobUrl: string): Promise<Blob> {
-  const res = await fetch(blobUrl)
-  const blob = await res.blob()
+  let blob: Blob
+  try {
+    const res = await fetch(blobUrl)
+    blob = await res.blob()
+  } catch {
+    throw new Error('PHOTO_EXPIRED')
+  }
 
-  const bitmap = await createImageBitmap(blob)
-  const scale = Math.min(1, 1024 / bitmap.width)
-  const width = Math.round(bitmap.width * scale)
-  const height = Math.round(bitmap.height * scale)
+  try {
+    const bitmap = await createImageBitmap(blob)
+    const scale = Math.min(1, 1024 / bitmap.width)
+    const width = Math.round(bitmap.width * scale)
+    const height = Math.round(bitmap.height * scale)
 
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return blob
-  ctx.drawImage(bitmap, 0, 0, width, height)
-  bitmap.close?.()
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return blob
+    ctx.drawImage(bitmap, 0, 0, width, height)
+    bitmap.close?.()
 
-  return new Promise<Blob>((resolve) => {
-    canvas.toBlob(
-      (out) => resolve(out ?? blob),
-      'image/jpeg',
-      0.5
-    )
-  })
+    return await new Promise<Blob>((resolve) => {
+      canvas.toBlob((out) => resolve(out ?? blob), 'image/jpeg', 0.5)
+    })
+  } catch {
+    // Canvas failed. Upload the original rather than losing the punch.
+    return blob
+  }
 }
 
 async function upload(localUri: string, employeeId: string, tag: string) {
@@ -79,6 +85,7 @@ const MESSAGES: Record<string, string> = {
   OFFLINE_DISABLED: 'Offline recording has been turned off by the administrator.',
   TOO_OLD: 'This punch is more than a week old and can no longer be submitted.',
   CLOCK_AHEAD: 'Your phone clock appears to be wrong. Correct it and try again.',
+  PHOTO_EXPIRED: 'The photo is no longer available. Please take it again.',
   BAD_TYPE: 'Something went wrong. Please try again.',
 }
 
@@ -90,17 +97,22 @@ export function friendlyError(raw: string) {
   if (range) {
     return `You appear to be about ${range[1]}m from the school. Move closer and try again.`
   }
-  if (raw.includes('UPLOAD_FAILED')) return 'The photo could not be uploaded.'
+  if (raw.includes('UPLOAD_FAILED')) {
+    return 'The photo could not be uploaded. Check your connection and try again.'
+  }
   return raw || 'Could not record attendance.'
 }
 
 function isNetworkError(e: any) {
   const m = String(e?.message ?? '').toLowerCase()
+  // PHOTO_EXPIRED is a local failure, never a network one. Checking it first
+  // stops a dead blob URL from being misread as "offline".
+  if (m.includes('photo_expired')) return false
   return (
     m.includes('network') ||
-    m.includes('fetch') ||
     m.includes('timeout') ||
-    m.includes('failed to load') ||
+    m.includes('load failed') ||
+    m.includes('failed to fetch') ||
     m.includes('connection')
   )
 }
@@ -120,11 +132,9 @@ export type PunchResult = { queued: boolean }
 /**
  * Sends immediately. On a network failure the punch is stored locally with
  * the device clock and flushed by SyncProvider once online. Server-side
- * rejections (bad QR, out of range, duplicate) surface straight away, since
- * retrying will not change the outcome.
+ * rejections surface straight away, since retrying will not change them.
  *
- * Web has no durable file store for a queued photo, so offline queueing is
- * disabled there and the user is told to reconnect.
+ * Web has no durable store for a queued photo, so queueing is native-only.
  */
 export async function submitPunch(args: PunchInput): Promise<PunchResult> {
   let fix = null
