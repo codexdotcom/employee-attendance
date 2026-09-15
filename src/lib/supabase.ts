@@ -3,8 +3,6 @@ import * as SecureStore from 'expo-secure-store'
 import { Platform } from 'react-native'
 import 'react-native-url-polyfill/auto'
 
-// SecureStore caps values at 2048 bytes and Supabase sessions exceed that,
-// so we split across numbered chunks and reassemble on read.
 const CHUNK_SIZE = 1800
 
 const SecureStoreAdapter = {
@@ -43,6 +41,20 @@ const SecureStoreAdapter = {
   },
 }
 
+// Web needs a durable store too, or the session dies on reload and the
+// user is locked out the moment they are offline.
+const LocalStorageAdapter = {
+  getItem: async (key: string) => {
+    try { return window.localStorage.getItem(key) } catch { return null }
+  },
+  setItem: async (key: string, value: string) => {
+    try { window.localStorage.setItem(key, value) } catch { /* private mode */ }
+  },
+  removeItem: async (key: string) => {
+    try { window.localStorage.removeItem(key) } catch { /* private mode */ }
+  },
+}
+
 const url = process.env.EXPO_PUBLIC_SUPABASE_URL
 const key = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY
 
@@ -52,7 +64,7 @@ if (!url || !key) {
 
 export const supabase = createClient(url, key, {
   auth: {
-    storage: Platform.OS === 'web' ? undefined : SecureStoreAdapter,
+    storage: Platform.OS === 'web' ? LocalStorageAdapter : SecureStoreAdapter,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

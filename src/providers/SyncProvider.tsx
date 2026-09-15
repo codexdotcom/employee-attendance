@@ -1,8 +1,16 @@
 import { flushOne } from '@/lib/punch'
 import { dequeue, readQueue, updateQueued } from '@/lib/queue'
 import NetInfo from '@react-native-community/netinfo'
-import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react'
-import { AppState } from 'react-native'
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+import { AppState, Platform } from 'react-native'
 
 type SyncState = {
   pending: number
@@ -18,8 +26,8 @@ const SyncContext = createContext<SyncState>({
   flush: async () => {},
 })
 
-// Permanent failures: retrying will never succeed, so drop the item
-// rather than letting it block the queue forever.
+// Permanent failures. Retrying will never succeed, so drop the item rather
+// than letting it block the queue forever.
 const TERMINAL = [
   'ALREADY_RECORDED',
   'INVALID_QR',
@@ -29,21 +37,29 @@ const TERMINAL = [
   'OUT_OF_RANGE',
   'PROXY_DISABLED',
   'OFFLINE_DISABLED',
+  'PHOTO_EXPIRED',
 ]
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState(0)
   const [syncing, setSyncing] = useState(false)
 
+  // A ref, not state: flush is called from event listeners that captured an
+  // older closure, and a stale `syncing` value would let two flushes overlap.
+  const running = useRef(false)
+
   const refresh = useCallback(async () => {
     setPending((await readQueue()).length)
   }, [])
 
   const flush = useCallback(async () => {
-    if (syncing) return
+    if (running.current) return
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return
+
     const items = await readQueue()
     if (!items.length) return
 
+    running.current = true
     setSyncing(true)
     try {
       for (const item of items) {
@@ -59,29 +75,47 @@ export function SyncProvider({ children }: { children: ReactNode }) {
               attempts: item.attempts + 1,
               lastError: msg,
             })
-            // Network still down. Stop and retry on the next trigger.
+            // Still offline or the server is unreachable. Stop and retry later.
             break
           }
         }
+        await refresh()
       }
     } finally {
       await refresh()
+      running.current = false
       setSyncing(false)
     }
-  }, [syncing, refresh])
+  }, [refresh])
 
   useEffect(() => {
     refresh()
+    flush()
+
+    const timer = setInterval(flush, 60_000)
+
+    if (Platform.OS === 'web') {
+      // NetInfo's reachability check is unreliable in browsers. The native
+      // online/focus events are what actually fire when a phone reconnects.
+      const onBack = () => flush()
+      window.addEventListener('online', onBack)
+      window.addEventListener('focus', onBack)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') flush()
+      })
+      return () => {
+        window.removeEventListener('online', onBack)
+        window.removeEventListener('focus', onBack)
+        clearInterval(timer)
+      }
+    }
 
     const unsub = NetInfo.addEventListener((state) => {
       if (state.isConnected && state.isInternetReachable !== false) flush()
     })
-
     const appSub = AppState.addEventListener('change', (s) => {
       if (s === 'active') flush()
     })
-
-    const timer = setInterval(flush, 60_000)
 
     return () => {
       unsub()

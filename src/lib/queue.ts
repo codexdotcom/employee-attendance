@@ -1,9 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { Directory, File, Paths } from 'expo-file-system'
+import { Platform } from 'react-native'
 import { QueuedPunch } from './types'
+import { deletePhoto, putPhoto } from './webStore'
 
 const KEY = 'punch_queue_v1'
 const DIR_NAME = 'pending_punches'
+const isWeb = Platform.OS === 'web'
 
 function queueDir() {
   const dir = new Directory(Paths.document, DIR_NAME)
@@ -12,14 +15,16 @@ function queueDir() {
 }
 
 /**
- * Photos taken by the camera live in the cache directory, which the OS may
- * clear at any time. A queued punch could sit there for hours, so copy the
- * image somewhere durable before we promise to send it later.
+ * Camera output lives somewhere volatile: the OS cache on native, a blob URL
+ * on web that dies on reload. A queued punch may sit for hours, so copy the
+ * image somewhere durable before promising to send it later.
  */
-export async function persistPhoto(cacheUri: string, label: string) {
+export async function persistPhoto(uri: string, label: string) {
+  if (isWeb) return putPhoto(uri)
+
   const dir = queueDir()
   const name = `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
-  const src = new File(cacheUri)
+  const src = new File(uri)
   const dest = new File(dir, name)
   src.copy(dest)
   return dest.uri
@@ -27,12 +32,11 @@ export async function persistPhoto(cacheUri: string, label: string) {
 
 export async function removePersisted(uri?: string | null) {
   if (!uri) return
+  if (isWeb) return deletePhoto(uri)
   try {
     const f = new File(uri)
     if (f.exists) f.delete()
-  } catch {
-    /* already gone */
-  }
+  } catch { /* already gone */ }
 }
 
 export async function readQueue(): Promise<QueuedPunch[]> {

@@ -23,6 +23,15 @@ import {
 } from 'react-native'
 
 const isWeb = Platform.OS === 'web'
+const STAFF_CACHE = 'staff_directory_cache'
+const PROXY_CACHE = 'allow_proxy'
+
+function cacheGet(key: string) {
+  try { return window.localStorage?.getItem(key) ?? null } catch { return null }
+}
+function cacheSet(key: string, value: string) {
+  try { window.localStorage?.setItem(key, value) } catch { /* private mode */ }
+}
 
 type Step =
   | 'who' | 'choose' | 'photo' | 'review'
@@ -37,9 +46,8 @@ export default function Scan() {
   const cameraRef = useRef<CameraView>(null)
   const scanLock = useRef(false)
 
-  // Blob URLs are revoked on unmount only. Revoking them when the photo
-  // state changes would kill the first photo the moment the second is taken,
-  // which is what broke the proxy flow with "Load failed".
+  // Revoked on unmount only. Revoking when photo state changes would kill
+  // the first photo the moment the second is taken, which breaks the proxy flow.
   const blobUrls = useRef<string[]>([])
 
   const [step, setStep] = useState<Step>('who')
@@ -51,18 +59,28 @@ export default function Scan() {
   const [subject, setSubject] = useState<StaffDirectoryEntry | null>(null)
   const [staff, setStaff] = useState<StaffDirectoryEntry[]>([])
   const [staffLoading, setStaffLoading] = useState(false)
+  const [staffStale, setStaffStale] = useState(false)
   const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [camReady, setCamReady] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [queued, setQueued] = useState(false)
 
+  // Cached so the flow still works offline, where the settings fetch fails.
   useEffect(() => {
+    const cached = cacheGet(PROXY_CACHE)
+    if (cached !== null) setAllowProxy(cached === 'true')
+
     supabase
       .from('app_settings')
       .select('allow_proxy')
       .single()
-      .then(({ data }) => setAllowProxy(data?.allow_proxy ?? true))
+      .then(({ data, error: err }) => {
+        if (err || !data) return
+        const v = data.allow_proxy ?? true
+        setAllowProxy(v)
+        cacheSet(PROXY_CACHE, String(v))
+      })
   }, [])
 
   useEffect(() => {
@@ -127,21 +145,34 @@ export default function Scan() {
     }
   }
 
+  // The staff list is cached so proxy punches still work with no connection.
   async function openPicker() {
     setStep('pick')
-    setStaffLoading(true)
+    setStaffStale(false)
+
+    const cached = cacheGet(STAFF_CACHE)
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as StaffDirectoryEntry[]
+        setStaff(parsed.filter((x) => x.id !== employee?.id))
+      } catch { /* corrupt cache, ignore */ }
+    }
+
+    setStaffLoading(!cached)
     const { data, error: err } = await supabase
       .from('staff_directory')
       .select('*')
       .order('full_name')
     setStaffLoading(false)
-    if (err) {
-      alert('Could not load staff', err.message)
+
+    if (err || !data) {
+      if (!cached) alert('Could not load staff', 'Connect to the internet and try again.')
+      else setStaffStale(true)
       return
     }
-    setStaff(
-      ((data as StaffDirectoryEntry[]) ?? []).filter((x) => x.id !== employee?.id)
-    )
+
+    cacheSet(STAFF_CACHE, JSON.stringify(data))
+    setStaff((data as StaffDirectoryEntry[]).filter((x) => x.id !== employee?.id))
   }
 
   const onScan = useCallback(async ({ data }: { data: string }) => {
@@ -377,6 +408,11 @@ export default function Scan() {
       <View style={s.wrap}>
         <View style={s.searchWrap}>
           <Text style={s.h1}>Who is this for?</Text>
+          {staffStale && (
+            <Text style={s.staleNote}>
+              Showing the last saved staff list. Recent changes may be missing.
+            </Text>
+          )}
           <TextInput
             style={s.search}
             placeholder="Search name or staff code"
@@ -483,7 +519,7 @@ export default function Scan() {
         </View>
         <Text style={s.doneTitle}>
           {queued
-            ? 'Saved on this phone'
+            ? 'Saved on this device'
             : type === 'CHECK_IN' ? 'Checked in' : 'Checked out'}
         </Text>
         <Text style={s.doneSub}>
@@ -494,8 +530,8 @@ export default function Scan() {
         </Text>
         {queued && (
           <Text style={s.doneNote}>
-            No internet connection. This will be sent automatically when you are
-            back online. Keep the app installed until then.
+            No internet connection. This will be sent automatically when you are back
+            online. Open the app once you have a connection so it can finish.
           </Text>
         )}
       </View>
@@ -561,6 +597,7 @@ const s = StyleSheet.create({
   webErrText: { color: c.danger, fontSize: 14, textAlign: 'center', lineHeight: 20 },
 
   searchWrap: { padding: sp.md, paddingBottom: sp.sm },
+  staleNote: { color: c.warn, fontSize: 12, marginBottom: sp.sm, lineHeight: 17 },
   search: {
     backgroundColor: c.surface, borderWidth: 1, borderColor: c.line,
     borderRadius: r.md, paddingHorizontal: sp.md, paddingVertical: 12,

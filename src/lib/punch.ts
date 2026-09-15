@@ -5,6 +5,7 @@ import { getFix } from './location'
 import { enqueue, persistPhoto, removePersisted } from './queue'
 import { supabase } from './supabase'
 import { PunchType, QueuedPunch } from './types'
+import { getPhoto } from './webStore'
 
 const BUCKET = 'attendance-photos'
 const isWeb = Platform.OS === 'web'
@@ -17,18 +18,30 @@ export async function compress(uri: string) {
 }
 
 /**
- * Shrink a browser blob with a canvas. expo-image-manipulator is native-only,
- * and phone cameras hand back 3-5MB files that would fill the storage tier fast.
+ * A web photo uri is either a fresh blob: URL from the file input, or an
+ * idb: key pointing at a queued photo in IndexedDB. Blob URLs die on reload,
+ * which is why queued photos are moved to IndexedDB in queue.ts.
  */
-async function compressWeb(blobUrl: string): Promise<Blob> {
-  let blob: Blob
+async function blobFromUri(uri: string): Promise<Blob> {
+  if (uri.startsWith('idb:')) {
+    const blob = await getPhoto(uri)
+    if (!blob) throw new Error('PHOTO_EXPIRED')
+    return blob
+  }
   try {
-    const res = await fetch(blobUrl)
-    blob = await res.blob()
+    const res = await fetch(uri)
+    return await res.blob()
   } catch {
     throw new Error('PHOTO_EXPIRED')
   }
+}
 
+/**
+ * Shrink with a canvas. expo-image-manipulator is native-only, and phone
+ * cameras hand back 3-5MB files that would fill the storage tier fast.
+ */
+async function compressWeb(uri: string): Promise<Blob> {
+  const blob = await blobFromUri(uri)
   try {
     const bitmap = await createImageBitmap(blob)
     const scale = Math.min(1, 1024 / bitmap.width)
@@ -105,9 +118,10 @@ export function friendlyError(raw: string) {
 
 function isNetworkError(e: any) {
   const m = String(e?.message ?? '').toLowerCase()
-  // PHOTO_EXPIRED is a local failure, never a network one. Checking it first
-  // stops a dead blob URL from being misread as "offline".
+  // A dead photo is a local failure, never a network one. Checking it first
+  // stops an expired blob URL from being misread as "offline" and queued.
   if (m.includes('photo_expired')) return false
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return true
   return (
     m.includes('network') ||
     m.includes('timeout') ||
@@ -132,9 +146,8 @@ export type PunchResult = { queued: boolean }
 /**
  * Sends immediately. On a network failure the punch is stored locally with
  * the device clock and flushed by SyncProvider once online. Server-side
- * rejections surface straight away, since retrying will not change them.
- *
- * Web has no durable store for a queued photo, so queueing is native-only.
+ * rejections (bad QR, out of range, duplicate) surface straight away, since
+ * retrying will not change the outcome.
  */
 export async function submitPunch(args: PunchInput): Promise<PunchResult> {
   let fix = null
@@ -147,6 +160,11 @@ export async function submitPunch(args: PunchInput): Promise<PunchResult> {
   }
 
   const clientTime = new Date().toISOString()
+
+  // Offline before we even start. Queue without burning a failed upload.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return queuePunch(args, fix, clientTime)
+  }
 
   try {
     const photoPath = await upload(args.photoUri, args.employeeId, 'env')
@@ -181,40 +199,41 @@ export async function submitPunch(args: PunchInput): Promise<PunchResult> {
     if (!isNetworkError(e)) {
       throw new Error(friendlyError(String(e?.message ?? '')))
     }
-
-    if (isWeb) {
-      throw new Error(
-        'No internet connection. Reconnect and try again. Offline recording is only available in the installed app.'
-      )
-    }
-
-    const photoUri = await persistPhoto(args.photoUri, 'env')
-    const subjectPhotoUri = args.subjectPhotoUri
-      ? await persistPhoto(args.subjectPhotoUri, 'person')
-      : null
-
-    const item: QueuedPunch = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      qrSecret: args.qrSecret,
-      type: args.type,
-      photoUri,
-      subjectPhotoUri,
-      subjectId: args.subjectId ?? null,
-      subjectName: args.subjectName ?? null,
-      employeeId: args.employeeId,
-      latitude: fix?.latitude ?? null,
-      longitude: fix?.longitude ?? null,
-      accuracy: fix?.accuracy ?? null,
-      clientTime,
-      attempts: 0,
-      lastError: null,
-    }
-    await enqueue(item)
-    return { queued: true }
+    return queuePunch(args, fix, clientTime)
   }
 }
 
-/** Used by SyncProvider. Native only. Throws on network failure so the item stays queued. */
+async function queuePunch(
+  args: PunchInput,
+  fix: { latitude: number; longitude: number; accuracy: number | null } | null,
+  clientTime: string
+): Promise<PunchResult> {
+  const photoUri = await persistPhoto(args.photoUri, 'env')
+  const subjectPhotoUri = args.subjectPhotoUri
+    ? await persistPhoto(args.subjectPhotoUri, 'person')
+    : null
+
+  const item: QueuedPunch = {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    qrSecret: args.qrSecret,
+    type: args.type,
+    photoUri,
+    subjectPhotoUri,
+    subjectId: args.subjectId ?? null,
+    subjectName: args.subjectName ?? null,
+    employeeId: args.employeeId,
+    latitude: fix?.latitude ?? null,
+    longitude: fix?.longitude ?? null,
+    accuracy: fix?.accuracy ?? null,
+    clientTime,
+    attempts: 0,
+    lastError: null,
+  }
+  await enqueue(item)
+  return { queued: true }
+}
+
+/** Used by SyncProvider. Throws on network failure so the item stays queued. */
 export async function flushOne(item: QueuedPunch) {
   const photoPath = await upload(item.photoUri, item.employeeId, 'env')
   let subjectPath: string | null = null
