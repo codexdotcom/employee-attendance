@@ -26,6 +26,11 @@ const isWeb = Platform.OS === 'web'
 const STAFF_CACHE = 'staff_directory_cache'
 const PROXY_CACHE = 'allow_proxy'
 
+// CameraView zoom is 0 to 1 and the scale is aggressive. Past ~0.4 the frame
+// gets too tight to aim at a wall-mounted code.
+const ZOOM_MAX = 0.4
+const ZOOM_STEP = 0.05
+
 function cacheGet(key: string) {
   try { return window.localStorage?.getItem(key) ?? null } catch { return null }
 }
@@ -65,6 +70,7 @@ export default function Scan() {
   const [camReady, setCamReady] = useState(false)
   const [capturing, setCapturing] = useState(false)
   const [queued, setQueued] = useState(false)
+  const [nativeZoom, setNativeZoom] = useState(0)
 
   // Cached so the flow still works offline, where the settings fetch fails.
   useEffect(() => {
@@ -278,6 +284,7 @@ export default function Scan() {
           ref={cameraRef}
           style={{ flex: 1 }}
           facing="back"
+          autofocus="on"
           onCameraReady={() => setCamReady(true)}
         />
         <View style={s.overlay} pointerEvents="box-none">
@@ -354,6 +361,7 @@ export default function Scan() {
           ref={cameraRef}
           style={{ flex: 1 }}
           facing="back"
+          autofocus="on"
           onCameraReady={() => setCamReady(true)}
         />
         <View style={s.overlay} pointerEvents="box-none">
@@ -480,11 +488,13 @@ export default function Scan() {
         <CameraView
           style={{ flex: 1 }}
           facing="back"
+          autofocus="on"
+          zoom={nativeZoom}
           barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
           onBarcodeScanned={onScan}
         />
         <View style={s.frame} pointerEvents="none" />
-        <View style={s.overlay} pointerEvents="none">
+        <View style={s.overlay} pointerEvents="box-none">
           {error ? (
             <Text style={s.errBanner}>{error}</Text>
           ) : (
@@ -494,6 +504,28 @@ export default function Scan() {
                 : 'Point at the attendance code'}
             </Text>
           )}
+
+          <View style={s.zoomBar}>
+            <Pressable
+              style={s.zoomBtn}
+              hitSlop={8}
+              onPress={() => setNativeZoom((z) => Math.max(0, +(z - ZOOM_STEP).toFixed(2)))}
+            >
+              <Text style={s.zoomBtnText}>−</Text>
+            </Pressable>
+            <Text style={s.zoomText}>
+              {nativeZoom === 0 ? 'Zoom' : `${Math.round((nativeZoom / ZOOM_MAX) * 100)}%`}
+            </Text>
+            <Pressable
+              style={s.zoomBtn}
+              hitSlop={8}
+              onPress={() =>
+                setNativeZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
+              }
+            >
+              <Text style={s.zoomBtnText}>+</Text>
+            </Pressable>
+          </View>
         </View>
       </View>
     )
@@ -577,6 +609,25 @@ const s = StyleSheet.create({
   shutter: { width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: '#fff', justifyContent: 'center', alignItems: 'center' },
   shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: '#fff' },
   frame: { position: 'absolute', top: '26%', left: '14%', width: '72%', height: 260, borderWidth: 2, borderColor: 'rgba(255,255,255,0.85)', borderRadius: r.lg },
+
+  zoomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: sp.md,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: r.md,
+    paddingHorizontal: sp.md,
+    paddingVertical: 6,
+  },
+  zoomBtn: { paddingHorizontal: 10, paddingVertical: 4 },
+  zoomBtnText: { color: '#fff', fontSize: 20, fontWeight: '700', lineHeight: 24 },
+  zoomText: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '600',
+    minWidth: 42,
+    textAlign: 'center',
+  },
 
   reviewBar: { flexDirection: 'row', gap: sp.sm + 2, padding: sp.md, backgroundColor: '#000' },
   retake: { flex: 1, borderWidth: 1, borderColor: 'rgba(255,255,255,0.45)', borderRadius: r.md, paddingVertical: 15, alignItems: 'center' },
